@@ -1,37 +1,52 @@
-import dotenv from 'dotenv';
-dotenv.config();
-
 import express from 'express';
 import cors from 'cors';
+import dotenv from 'dotenv';
+import cookieParser from 'cookie-parser';
+
+import { connectDB } from './db/connectDB.js';
+
+import logger from './middlewares/logger.js';
+import notesRouter from './routes/notesRoutes.js';
+import authRouter from './routes/authRoutes.js';
+
+import {
+  errorHandler,
+  notFoundHandler,
+} from './middlewares/errorHandlers.js';
 import { errors } from 'celebrate';
 
-import { connectMongoDB } from './db/connectMongoDB.js';
-import { logger } from './middleware/logger.js';
-import { notFoundHandler } from './middleware/notFoundHandler.js';
-import { errorHandler } from './middleware/errorHandler.js';
-import notesRoutes from './routes/notesRoutes.js';
+dotenv.config();
 
 const app = express();
 
+app.use(cors({
+  origin: true,
+  credentials: true,
+}));
+
 app.use(logger);
 app.use(express.json());
-app.use(cors());
+app.use(cookieParser());
 
-app.use(notesRoutes);
-
+app.use(authRouter);
+app.use(notesRouter);
 
 app.use(errors());
 app.use(notFoundHandler);
 app.use(errorHandler);
 
-const bootstrap = async () => {
-  await connectMongoDB();
+const PORT = process.env.PORT || 3000;
 
-  const port = process.env.PORT || 3000;
-
-  app.listen(port, () => {
-    console.log(`Server is running on port ${port}`);
-  });
+const startServer = async () => {
+  try {
+    await connectDB();
+    app.listen(PORT, () => {
+      console.log(`Server is running on port ${PORT}`);
+    });
+  } catch (error) {
+    console.error('Failed to start server:', error);
+    process.exit(1);
+  }
 };
 
-bootstrap();
+startServer();
