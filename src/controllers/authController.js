@@ -1,99 +1,92 @@
-import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
+import fs from 'fs/promises';
+import path from 'path';
+import handlebars from 'handlebars';
 import createHttpError from 'http-errors';
+import bcrypt from 'bcrypt';
 
 import { User } from '../models/user.js';
-import { Session } from '../models/session.js';
-import { createSession, setSessionCookies } from '../services/auth.js';
+import { sendMail } from '../utils/sendMail.js';
+import { FIFTEEN_MINUTES } from '../constants/time.js';
 
-export const registerUser = async (req, res, next) => {
+export const requestResetEmail = async (req, res, next) => {
   try {
-    const { email, password } = req.body;
-
-    const existing = await User.findOne({ email });
-    if (existing) {
-      throw createHttpError(400, 'Email in use');
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    const user = await User.create({ email, password: hashedPassword });
-
-    const session = await createSession(user._id);
-    setSessionCookies(res, session);
-
-    res.status(201).json(user);
-  } catch (err) {
-    next(err);
-  }
-};
-
-export const loginUser = async (req, res, next) => {
-  try {
-    const { email, password } = req.body;
-
+    const { email } = req.body;
     const user = await User.findOne({ email });
+
     if (!user) {
-      throw createHttpError(401, 'Invalid credentials');
+      return res.status(200).json({
+        message: 'Password reset email sent successfully',
+      });
     }
 
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      throw createHttpError(401, 'Invalid credentials');
-    }
+const token = jwt.sign(
+  { sub: user._id, email: user.email },
+  process.env.JWT_SECRET,
+  { expiresIn: FIFTEEN_MINUTES / 1000 }
+);
 
-    
-    await Session.deleteMany({ userId: user._id });
+    const templatePath = path.resolve(
+      'src/templates/reset-password-email.html'
+    );
+    const source = await fs.readFile(templatePath, 'utf-8');
+    const template = handlebars.compile(source);
 
-    const session = await createSession(user._id);
-    setSessionCookies(res, session);
+    const resetLink = `${process.env.FRONTEND_DOMAIN}/reset-password?token=${token}`;
 
-    res.status(200).json(user);
-  } catch (err) {
-    next(err);
+    const html = template({
+      username: user.username,
+      resetLink,
+    });
+
+    await sendMail({
+      to: email,
+      subject: 'Reset your password',
+      html,
+    });
+
+    res.status(200).json({
+      message: 'Password reset email sent successfully',
+    });
+  } catch (error) {
+  next(error);
+} {
+    next(
+      createHttpError(
+        500,
+        'Failed to send the email, please try again later.'
+      )
+    );
   }
 };
 
-export const refreshUserSession = async (req, res, next) => {
+export const resetPassword = async (req, res, next) => {
   try {
-    const sessionId = req.cookies?.sessionId;
-    const refreshToken = req.cookies?.refreshToken;
+    const { token, password } = req.body;
 
-    const session = await Session.findOne({ _id: sessionId, refreshToken });
-    if (!session) {
-      throw createHttpError(401, 'Session not found');
+    let payload;
+    try {
+      payload = jwt.verify(token, process.env.JWT_SECRET);
+    } catch {
+      return next(createHttpError(401, 'Invalid or expired token'));
     }
 
-    if (new Date(session.refreshTokenValidUntil).getTime() < Date.now()) {
-      throw createHttpError(401, 'Session token expired');
+    const user = await User.findOne({
+      _id: payload.sub,
+      email: payload.email,
+    });
+
+    if (!user) {
+      return next(createHttpError(404, 'User not found'));
     }
 
-    await Session.deleteOne({ _id: session._id });
+    user.password = await bcrypt.hash(password, 10);
+    await user.save();
 
-    const newSession = await createSession(session.userId);
-    setSessionCookies(res, newSession);
-
-    res.status(200).json({ message: 'Session refreshed' });
-  } catch (err) {
-    next(err);
-  }
-};
-
-export const logoutUser = async (req, res, next) => {
-  try {
-    const sessionId = req.cookies?.sessionId;
-
-    if (sessionId) {
-      await Session.deleteOne({ _id: sessionId });
-    }
-
-    const options = { httpOnly: true, secure: true, sameSite: 'none' };
-
-    res.clearCookie('sessionId', options);
-    res.clearCookie('accessToken', options);
-    res.clearCookie('refreshToken', options);
-
-    res.status(204).send();
-  } catch (err) {
-    next(err);
+    res.status(200).json({
+      message: 'Password reset successfully',
+    });
+  } catch (error) {
+    next(error);
   }
 };
