@@ -9,10 +9,11 @@ import { connectMongoDB } from './db/connectMongoDB.js';
 
 import authRoutes from './routes/authRoutes.js';
 import notesRoutes from './routes/notesRoutes.js';
+import userRoutes from './routes/userRoutes.js';
 
 import { notFoundHandler } from './middleware/notFoundHandler.js';
 import { errorHandler } from './middleware/errorHandler.js';
-import userRoutes from './routes/userRoutes.js';
+
 dotenv.config();
 
 const app = express();
@@ -22,22 +23,25 @@ app.use(logger);
 app.use(express.json());
 app.use(cookieParser());
 
+
 app.use(authRoutes);
 app.use(notesRoutes);
-
+app.use(userRoutes);
 
 app.use(notFoundHandler);
 app.use(errors());
 app.use(errorHandler);
-app.use(userRoutes);
+
 const PORT = process.env.PORT || 3000;
 
 const startServer = async () => {
   try {
     await connectMongoDB();
-    app.listen(PORT, () => console.log(`Server is running on port ${PORT}`));
-  } catch (err) {
-    console.error('Failed to start server:', err);
+    app.listen(PORT, () => {
+      console.log(`Server is running on port ${PORT}`);
+    });
+  } catch (error) {
+    console.error('Failed to start server:', error);
     process.exit(1);
   }
 };
